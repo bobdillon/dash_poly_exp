@@ -7,7 +7,6 @@ from sklearn.datasets import make_blobs
 import numpy as np
 import dash_table
 
-
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
@@ -28,7 +27,7 @@ app.layout = html.Div([
     dcc.Graph(id='scatter-plot-2'),
     html.Button('Toggle Selected Data', id='print-button', n_clicks=0),
     html.Button('Generate Polygon', id='generate-button', n_clicks=0),
-    html.Div(id='selected-data'),
+    html.Div(id='selected-data-table-container'),
     dcc.Graph(id='mesh-plot'),
     html.Div(id='error-message')
 ])
@@ -61,44 +60,64 @@ def update_graphs(seed, plane):
     return fig_3d, fig_scatter_1, fig_scatter_2
 
 @app.callback(
-    [Output('selected-data', 'children'),
-     Output('mesh-plot', 'figure'),
+    [Output('selected-data-table-container', 'children'),
      Output('error-message', 'children')],
-    [Input('print-button', 'n_clicks'),
-     Input('generate-button', 'n_clicks')],
+    [Input('print-button', 'n_clicks')],
+    [State('scatter-plot-1', 'selectedData'),
+     State('scatter-plot-2', 'selectedData')]
+)
+def update_selected_data_table(print_clicks, selected_data_1, selected_data_2):
+    if print_clicks % 2 == 1:
+        data_1 = pd.DataFrame(selected_data_1['points']) if selected_data_1 else pd.DataFrame()
+        data_2 = pd.DataFrame(selected_data_2['points']) if selected_data_2 else pd.DataFrame()
+        
+        if not data_1.empty and not data_2.empty:
+            selected_data = pd.concat([data_1, data_2])
+            table = dash_table.DataTable(
+                data=selected_data.to_dict('records'),
+                columns=[{'name': col, 'id': col} for col in selected_data.columns],
+                style_table={'maxHeight': '300px', 'overflowY': 'scroll'},
+                style_cell={'textAlign': 'center'},
+                selected_rows=[],
+                editable=False
+            )
+            error_message = None
+        else:
+            table = None
+            error_message = 'No data selected.'
+        
+        return table, error_message
+    
+    return None, None
+
+@app.callback(
+    Output('mesh-plot', 'figure'),
+    [Input('generate-button', 'n_clicks')],
     [State('scatter-plot-1', 'selectedData'),
      State('scatter-plot-2', 'selectedData'),
      State('3d-graph', 'figure')]
 )
-def handle_button_clicks(print_clicks, generate_clicks, selected_data_1, selected_data_2, fig_3d):
-    ctx = dash.callback_context
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+def generate_polygon(generate_clicks, selected_data_1, selected_data_2, fig_3d):
+    if generate_clicks % 2 == 1:
+        data_1 = pd.DataFrame(selected_data_1['points']) if selected_data_1 else pd.DataFrame()
+        data_2 = pd.DataFrame(selected_data_2['points']) if selected_data_2 else pd.DataFrame()
 
-    fig_mesh = go.Figure(data=fig_3d['data']) if fig_3d else go.Figure()
-
-    data_1 = pd.DataFrame(selected_data_1['points']) if selected_data_1 else pd.DataFrame()
-    data_2 = pd.DataFrame(selected_data_2['points']) if selected_data_2 else pd.DataFrame()
-
-    if trigger_id == 'print-button':
-        data_display = 'No data selected.'
-        error_message = None
-    elif trigger_id == 'generate-button':
         if not data_1.empty and not data_2.empty:
+            fig_mesh = go.Figure(data=fig_3d['data']) if fig_3d else go.Figure()
             try:
                 fig_mesh.add_trace(go.Mesh3d(x=pd.concat([data_1['x'], data_2['x']]), y=pd.concat([data_1['y'], data_2['y']]), z=pd.concat([data_1['customdata'], data_2['customdata']]), color='purple', opacity=0.5, name='Polygon'))
-                data_display = 'Polygon generated successfully.'
-                error_message = None
             except Exception as e:
-                data_display = 'No data selected.'
+                fig_mesh = go.Figure()
                 error_message = f"Error generating polygon: {e}"
+            else:
+                error_message = None
         else:
-            data_display = 'No data selected.'
-            error_message = None
-    else:
-        data_display = 'No data selected.'
-        error_message = None
+            fig_mesh = go.Figure()
+            error_message = 'No data selected.'
+        
+        return fig_mesh
 
-    return data_display, fig_mesh, error_message
+    return go.Figure()
 
 if __name__ == '__main__':
     app.run_server(debug=True)
